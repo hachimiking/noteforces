@@ -1,0 +1,58 @@
+<template>
+  <v-container class="fill-height" fluid>
+    <v-row justify="center" align="center">
+      <v-col cols="12" sm="8" md="4">
+        <v-card>
+          <v-card-title class="text-h5">登录</v-card-title>
+          <v-card-text>
+            <v-form ref="loginForm" @submit.prevent="onSubmit">
+              <v-text-field v-model="form.username" label="用户名" prepend-icon="mdi-account" :rules="[rules.required]"></v-text-field>
+              <v-text-field v-model="form.password" label="密码" prepend-icon="mdi-lock" type="password" :rules="[rules.required]"></v-text-field>
+              <v-btn type="submit" color="primary" class="mt-4" block>登录</v-btn>
+            </v-form>
+            <div class="mt-5 text-center">
+              没有账号？<span class="link-text" @click="goRegister">去注册</span>
+            </div>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+  </v-container>
+</template>
+
+<script lang="ts">
+import { defineComponent, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import request from '@/plugins/axios'
+
+export default defineComponent({
+  setup() {
+    const router = useRouter()
+    const loginForm = ref()
+    const form = reactive({ username: '', password: '' })
+    const rules = { required: (v: string) => !!v || '此项为必填' }
+
+    const onSubmit = async () => {
+      try {
+        const res = await request.post('/user/login', form)
+        if (res.data.code === 0) {
+          localStorage.setItem('token', res.data.data.token)
+          router.push('/')
+        } else {
+          alert(res.data.msg)
+        }
+      } catch (err: any) {
+        alert(err.response?.data?.msg || '登录失败')
+      }
+    }
+
+    const goRegister = () => { router.push('/register') }
+
+    return { form, rules, loginForm, onSubmit, goRegister }
+  }
+})
+</script>
+
+<style scoped>
+.link-text { color: #1976d2; cursor: pointer; text-decoration: underline; }
+</style>

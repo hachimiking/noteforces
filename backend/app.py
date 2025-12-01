@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, make_response
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
 from datetime import datetime
@@ -8,6 +9,7 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///noteforces.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+CORS(app, supports_credentials=True, origins=["http://127.0.0.1:3000"])
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -41,9 +43,15 @@ def json_response(code=0, msg='ok', data=None, status=200):
 def get_json_body():
     return request.get_json(silent=True) or {}
 
+def get_token():
+    auth = request.headers.get('Authorization')
+    if auth and auth.startswith("Bearer "):
+        return auth.split(" ", 1)[1]
+    return None
+
 def login_required(func):
     def wrapper(*args, **kwargs):
-        token = request.cookies.get('token')
+        token = get_token()
         if not token:
             return json_response(4001, 'Not logged in', status=401)
         user = User.query.filter_by(token=token).first()
@@ -85,18 +93,14 @@ def user_login():
     if not user or not user.check_password(password):
         return json_response(4003, 'Invalid username or password', status=401)
     token = user.generate_token()
-    resp = make_response(json_response(0, 'Login successful', {'token': token}))
-    resp.set_cookie('token', token, httponly=True, path='/')
-    return resp
+    return json_response(0, 'Login successful', {'token': token})
 
 @app.route('/user/logout', methods=['POST'])
 @login_required
 def user_logout(current_user):
-    resp = make_response(json_response(0, 'Logout successful'))
-    resp.set_cookie('token', '', expires=0, path='/')
     current_user.token = None
     db.session.commit()
-    return resp
+    return json_response(0, 'Logout successful')
 
 @app.route('/user/me', methods=['GET'])
 @login_required
@@ -144,8 +148,8 @@ def note_delete(current_user):
 @app.route('/note/detail', methods=['GET'])
 @login_required
 def note_detail(current_user):
-    data = get_json_body()
-    note = Note.query.filter_by(id=data.get('noteId'), userId=current_user.id).first()
+    noteId = request.args.get('noteId')
+    note = Note.query.filter_by(id=noteId, userId=current_user.id).first()
     if not note:
         return json_response(4003, 'Note not found', status=404)
     return json_response(0, 'ok', {'noteId': note.id, 'title': note.title, 'content': note.content, 'category': note.category, 'tags': note.tags.split(','), 'createdAt': note.createdAt, 'updatedAt': note.updatedAt})
@@ -153,10 +157,9 @@ def note_detail(current_user):
 @app.route('/note/list', methods=['GET'])
 @login_required
 def note_list(current_user):
-    data = get_json_body()
-    keyword = data.get('keyword') or ''
-    tags = data.get('tags') or []
-    category = data.get('category') or ''
+    keyword = request.args.get('keyword') or ''
+    category = request.args.get('category') or ''
+    tags = request.args.getlist('tags')
     query = Note.query.filter_by(userId=current_user.id)
     if keyword:
         query = query.filter(Note.title.contains(keyword))
@@ -208,8 +211,7 @@ def share_disable(current_user):
 
 @app.route('/share/view', methods=['GET'])
 def share_view():
-    data = get_json_body()
-    token = data.get('shareToken')
+    token = request.args.get('token')
     note = Note.query.filter_by(shareToken=token).first()
     if not note:
         return json_response(4003, 'Note not found', status=404)
@@ -220,8 +222,7 @@ def share_view():
 @login_required
 @admin_required
 def admin_users(current_user):
-    data = get_json_body()
-    keyword = data.get('keyword') or ''
+    keyword = request.args.get('keyword') or ''
     query = User.query
     if keyword:
         query = query.filter(User.username.contains(keyword))
@@ -244,9 +245,8 @@ def admin_user_delete(current_user):
 @login_required
 @admin_required
 def admin_notes(current_user):
-    data = get_json_body()
-    keyword = data.get('keyword') or ''
-    userId = data.get('userId')
+    keyword = request.args.get('keyword') or ''
+    userId = request.args.get('userId')
     query = Note.query
     if keyword:
         query = query.filter(Note.title.contains(keyword))
